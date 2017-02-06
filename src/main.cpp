@@ -60,7 +60,7 @@ loadFile(const char* fileName,
 {
   pcl::PolygonMesh mesh;
   
-  if ( pcl::io::loadPolygonFile ( fileName, mesh ) == -1 )
+  if ( pcl::io::loadPLYFile ( fileName, mesh ) == -1 )
   {
     PCL_ERROR ( "loadFile faild." );
     return;
