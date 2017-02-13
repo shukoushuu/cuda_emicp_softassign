@@ -41,7 +41,7 @@ using namespace std;
 
 
 
-
+// d_ indicates device
 __global__ static void
 updateM(int rowsM, int colsM, int pitchM,
 	float* d_Xx, float* d_Xy, float* d_Xz, 
@@ -64,6 +64,7 @@ updateM(int rowsM, int colsM, int pitchM,
   __shared__ float RShare[9]; // BLOCK_SIZE >= 9 is assumed
   __shared__ float tShare[3]; // BLOCK_SIZE >= 3 is assumed
   
+  // load R and t from global memory to shared memory in eaxh BLOCK
   if(threadIdx.y == 0)
     if(threadIdx.x < 9){
       RShare[threadIdx.x] = d_R[threadIdx.x];
@@ -73,18 +74,18 @@ updateM(int rowsM, int colsM, int pitchM,
   
   if(r < rowsM && c < colsM){ // check for only inside the matrix M
     
-    if(threadIdx.y == 0){
+    if(threadIdx.y == 0){ // load first column in each BLOCK to shared memory
       XxShare[threadIdx.x] = d_Xx[r];
       XyShare[threadIdx.x] = d_Xy[r];
       XzShare[threadIdx.x] = d_Xz[r];
     }
-    if(threadIdx.x == 0){
+    if(threadIdx.x == 0){ // load first  row in each BLOCK to shared memory
       YxShare[threadIdx.y] = d_Yx[c];
       YyShare[threadIdx.y] = d_Yy[c];
       YzShare[threadIdx.y] = d_Yz[c];
     }
 
-    __syncthreads();
+    __syncthreads(); // synchronized to ensure that all the elements in the first row and column of a BLOCK have been loaded
 
 #define Xx XxShare[threadIdx.x]
 #define Xy XyShare[threadIdx.x]
@@ -103,6 +104,7 @@ updateM(int rowsM, int colsM, int pitchM,
     
 //     tmp = expf(-tmp/T_cur) / sqrtf(T_cur);
 
+    // xi - (R * yj + t)
      float tmpX = Xx - (R(0)*Yx + R(1)*Yy + R(2)*Yz + t(0));
      float tmpY = Xy - (R(3)*Yx + R(4)*Yy + R(5)*Yz + t(1));
      float tmpZ = Xz - (R(6)*Yx + R(7)*Yy + R(8)*Yz + t(2));
@@ -122,6 +124,7 @@ updateM(int rowsM, int colsM, int pitchM,
      tmpY *= tmpY;
      tmpZ *= tmpZ;
 
+     // ||xi - (R * yj + t)|| ^2 - alpha
      tmpX += tmpY;
      tmpX += tmpZ;
      tmpX -= alpha;
@@ -149,13 +152,13 @@ normalizeMbySinkhorn_row(int rowsM, int colsM, int pitchM,
   int c =  blockIdx.y * blockDim.y + threadIdx.y;
 
   // Shared memory
-  __shared__ float sumOfRowShare[BLOCK_SIZE];
+  __shared__ float sumOfRowShare[BLOCK_SIZE]; // a BLOCK has BLOCK_SIZE*BLOCK_SIZE threads, and BLOCK_SIZE rows
 
 
   if(r < rowsM && c < colsM){ // check for only inside the matrix M
 
     if(threadIdx.y == 0)
-      sumOfRowShare[threadIdx.x] = d_sumOfRow[r];
+      sumOfRowShare[threadIdx.x] = d_sumOfRow[r]; // load from global memory to shared memory
 
     __syncthreads();
 
@@ -186,7 +189,7 @@ normalizeMbySinkhorn_col(int rowsM, int colsM, int pitchM,
   if(r < rowsM && c < colsM){ // check for only inside the matrix M
 
     if(threadIdx.x == 0)
-      sumOfColShare[threadIdx.y] = d_sumOfCol[c];
+      sumOfColShare[threadIdx.y] = d_sumOfCol[c]; // load from global memory to shared memory
 
     __syncthreads();
 
@@ -202,7 +205,7 @@ normalizeMbySinkhorn_col(int rowsM, int colsM, int pitchM,
 
 
 
-__global__ static void
+__global__ static void // calculate xi*RMi or yj*CMj in the article
 elementwiseMultiplicationCopy(int rowsM,
 			      const float* d_Xx, const float* d_Xy, const float* d_Xz,
 			      const float* d_sumOfMRow,
@@ -221,7 +224,7 @@ elementwiseMultiplicationCopy(int rowsM,
 
 
 
-__global__ static void
+__global__ static void // calculate X_hat or Y_hat in the article
 centeringXorY(int rowsM,
 	      const float* d_Xc, float sum,
 	      float* d_Xx_result, float* d_Xy_result, float* d_Xz_result){
@@ -233,7 +236,7 @@ centeringXorY(int rowsM,
   // Shared memory
   __shared__ float Xc[3];
 
-  if(threadIdx.x < 3) Xc[threadIdx.x] = d_Xc[threadIdx.x];
+  if(threadIdx.x < 3) Xc[threadIdx.x] = d_Xc[threadIdx.x]; // load from global memory to shared memory
 
 
   if(r < rowsM){ // check for only inside the matrix M
@@ -252,7 +255,7 @@ centeringXorY(int rowsM,
 
 
 
-
+// h_ indicates host
 void softassign(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target, 
 		const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_source,
 		float* h_R, float* h_t, 
@@ -260,7 +263,7 @@ void softassign(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
 {
   
   
-  int Xsize, Ysize;
+  int Xsize, Ysize; // number of points
   float *h_X, *h_Y;
   cloud2data(cloud_target, &h_X, Xsize);
   cloud2data(cloud_source, &h_Y, Ysize);
@@ -379,7 +382,7 @@ void softassign(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
   memHostToCUDA(one, max(Xsize,Ysize)); // vector with all elements of 1
 
 
-  memCUDA(sumOfMRow, rowsM);
+  memCUDA(sumOfMRow, rowsM); // sumOfMRow indicates sum of all the elements in a row
   memCUDA(sumOfMCol, colsM);
 
   float* h_m_outliers_row = new float [rowsM]; 
@@ -558,7 +561,7 @@ void softassign(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
 	normalizeMbySinkhorn_row
 	  <<< dimGridForM, dimBlockForM >>>
 	  (rowsM, colsM, pitchM,
-	   d_M, d_sumOfMRow, d_m_outliers_row);
+       d_M, d_sumOfMRow, d_m_outliers_row); // both d_M and d_m_outliers_row are divided by d_sumOfMRow
 
 
 	STOP_TIMER(timerShinkhorn3);
@@ -596,7 +599,7 @@ void softassign(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
 	  (rowsM, colsM, pitchM,
 	   d_M, d_sumOfMCol, d_m_outliers_col);
 
-      }
+      } // end of shinkhorn loop
 
       STOP_TIMER(timerShinkhorn);
 
@@ -636,7 +639,7 @@ void softassign(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
       //sum of M
       // float cublasSasum (int n, const float *x, int incx) 
       // computes the sum of the absolute values of the elements
-      float sumM = cublasSasum (rowsM, d_sumOfMRow, 1); 
+      float sumM = cublasSasum (rowsM, d_sumOfMRow, 1);  // calculate N in the article
       // sum of all elements in M, assuming that all are positive.
 
       STOP_TIMER(timerSumM);
@@ -650,7 +653,7 @@ void softassign(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
       START_TIMER(timerGetWeightedXY);
 
       // X .* sumOfRow => X_result
-      elementwiseMultiplicationCopy
+      elementwiseMultiplicationCopy // calculate xi*RMi in the article
 	<<< blocksPerGridForXsize, threadsPerBlockForXsize>>>
 	(rowsM,
 	 d_Xx, d_Xy, d_Xz,
@@ -658,7 +661,7 @@ void softassign(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
 	 d_Xx_result, d_Xy_result, d_Xz_result);
 
       // Y .* sumOfCol => Y_result
-      elementwiseMultiplicationCopy
+      elementwiseMultiplicationCopy // calculate yj*CMj in the article
 	<<< blocksPerGridForYsize, threadsPerBlockForYsize>>>
 	(colsM,
 	 d_Yx, d_Yy, d_Yz,
@@ -705,8 +708,8 @@ void softassign(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
 
       // void cublasSscal (int n, float alpha, float *x, int incx)
       // it replaces x[ix + i * incx] with alpha * x[ix + i * incx]
-      cublasSscal (3, 1/sumM, d_Xc, 1);
-      cublasSscal (3, 1/sumM, d_Yc, 1);
+      cublasSscal (3, 1/sumM, d_Xc, 1); // calculate x_bar in the article
+      cublasSscal (3, 1/sumM, d_Yc, 1); // calculate y_bar in the article
 
 
       CUDA_SAFE_CALL(cudaMemcpy(h_Xc, d_Xc, sizeof(float)*3, cudaMemcpyDeviceToHost));

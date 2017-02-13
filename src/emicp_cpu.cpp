@@ -29,7 +29,13 @@
 #include <cmath>
 
 
-
+// To use BLAS from a C++ program you must declare each BLAS function you will call as being extern
+// add an _ to the end of the subroutine name
+// sgemm: matrix-matrix multiply-add operation
+// saxpy: add a scalar multiple of a vector to another vector-->y = a * x + y
+// sgemv: matrix-vector multiply-add operation
+// sasum: sum the absolute values of the elements in a vector
+// sscal: scale a vector with a scalar-->x = a * x
 extern "C" {
   int sgemm_(const char *transa, const char *transb, const int *m, const int *n, const int *k,
              const float *alpha, const float *a, const int *lda, const float *b, const int *ldb,
@@ -63,7 +69,7 @@ updateA(int rowsA, int colsA, int pitchA,
 	const float* h_Yx, const float* h_Yy, const float* h_Yz,
 	const float* h_R, const float* h_t,
 	float* h_A,
-	float sigma_p2){
+    float sigma_p2){ // (sigma_p)^2
 
 #pragma omp parallel for
   for(int c=0; c<colsA; c++){
@@ -113,7 +119,7 @@ updateA(int rowsA, int colsA, int pitchA,
 static void
 normalizeRowsOfA(int rowsA, int colsA, int pitchA,
 		 float *h_A,
-		 const float *h_C){
+         const float *h_C){ // calculate sqrt(alpha_ij)
   
 #pragma omp parallel for
   for(int c=0; c<colsA; c++)
@@ -191,7 +197,7 @@ void emicp_cpu(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
   
   
   
-  int Xsize, Ysize;
+  int Xsize, Ysize; // number of points
   float *h_X, *h_Y;
   cloud2data(cloud_target, &h_X, Xsize);
   cloud2data(cloud_source, &h_Y, Ysize);
@@ -358,7 +364,7 @@ void emicp_cpu(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
       }
 
 
-      normalizeRowsOfA
+      normalizeRowsOfA // calculate sqrt(alpha_ij)
 	(rowsA, colsA, pitchA, h_A, h_C);
 
 

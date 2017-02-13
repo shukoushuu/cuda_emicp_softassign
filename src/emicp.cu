@@ -52,7 +52,7 @@ updateA(int rowsA, int colsA, int pitchA,
 	const float* d_Yx, const float* d_Yy, const float* d_Yz,
 	const float* d_R, const float* d_t,
 	float* d_A,
-	float sigma_p2){
+    float sigma_p2){ // (sigma_p)^2
 
 
   int r =  blockIdx.x * blockDim.x + threadIdx.x;
@@ -68,6 +68,7 @@ updateA(int rowsA, int colsA, int pitchA,
   __shared__ float RShare[9];
   __shared__ float tShare[3];
 
+  // load R and t from global memory to shared memory in eaxh BLOCK
   if(threadIdx.x == 0 && threadIdx.y == 0)
   {
     for (int i = 0; i < 9; i++) RShare[i] = d_R[i];
@@ -76,12 +77,12 @@ updateA(int rowsA, int colsA, int pitchA,
   
   if(r < rowsA && c < colsA){ // check for only inside the matrix A
 
-    if(threadIdx.x == 0){
+    if(threadIdx.x == 0){ // load first column in each BLOCK to shared memory
       XxShare[threadIdx.y] = d_Xx[c];
       XyShare[threadIdx.y] = d_Xy[c];
       XzShare[threadIdx.y] = d_Xz[c];
     }
-    if(threadIdx.y == 0){
+    if(threadIdx.y == 0){ // load first  row in each BLOCK to shared memory
       YxShare[threadIdx.x] = d_Yx[r];
       YyShare[threadIdx.x] = d_Yy[r];
       YzShare[threadIdx.x] = d_Yz[r];
@@ -117,6 +118,7 @@ updateA(int rowsA, int colsA, int pitchA,
      tmpY *= tmpY;
      tmpZ *= tmpZ;
 
+     // ||xi - (R * yj + t)|| ^2
      tmpX += tmpY;
      tmpX += tmpZ;
 
@@ -132,7 +134,7 @@ updateA(int rowsA, int colsA, int pitchA,
 }
 
 
-__global__ static void
+__global__ static void // calculate sqrt(alpha_ij)
 normalizeRowsOfA(int rowsA, int colsA, int pitchA,
 		 float *d_A,
 		 const float *d_C
@@ -142,7 +144,7 @@ normalizeRowsOfA(int rowsA, int colsA, int pitchA,
   int c =  blockIdx.y * blockDim.y + threadIdx.y;
 
   // Shared memory
-  __shared__ float d_CShare[BLOCK_SIZE];
+  __shared__ float d_CShare[BLOCK_SIZE]; // a BLOCK has BLOCK_SIZE*BLOCK_SIZE threads, and BLOCK_SIZE rows
 
 
   if(r < rowsA && c < colsA){ // check for only inside the matrix A
@@ -250,7 +252,7 @@ void emicp(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
 	   const registrationParameters &param)
 {
   
-  int Xsize, Ysize;
+  int Xsize, Ysize; // number of points
   float *h_X, *h_Y;
   cloud2data(cloud_target, &h_X, Xsize);
   cloud2data(cloud_source, &h_Y, Ysize);
@@ -489,7 +491,7 @@ void emicp(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_target,
       cublasSaxpy(rowsA, expf(-d_02/sigma_p2), d_one, 1, d_C, 1);
       
 
-      normalizeRowsOfA
+      normalizeRowsOfA // calculate sqrt(alpha_ij)
 	<<< dimGridForA, dimBlockForA >>>
 	(rowsA, colsA, pitchA, d_A, d_C);
 
